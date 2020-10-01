@@ -57,6 +57,9 @@ def save_image(image, destination=None, filename=None, **options):
                 max(image.size) >= settings.THUMBNAIL_PROGRESSIVE):
             options['progressive'] = True
         try:
+            icc_profile = image.info.get('icc_profile')
+            if icc_profile:
+                options['icc_profile'] = icc_profile
             image.save(destination, format=format, optimize=1, **options)
             saved = True
         except IOError:
