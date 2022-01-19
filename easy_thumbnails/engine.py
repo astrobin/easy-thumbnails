@@ -49,25 +49,26 @@ def save_image(image, destination=None, filename=None, **options):
     if format in ('JPEG', 'WEBP'):
         options.setdefault('quality', 85)
     saved = False
-    if format == 'JPEG':
-        if image.mode.endswith('A'):
-            # From PIL 4.2, saving an image with a transparency layer raises an
-            # IOError, so explicitly remove it.
-            image = image.convert(image.mode[:-1])
-        if settings.THUMBNAIL_PROGRESSIVE and (
-                max(image.size) >= settings.THUMBNAIL_PROGRESSIVE):
-            options['progressive'] = True
-        try:
-            if options.pop('keep_icc_profile', False):
+    if format in ('JPEG', 'PNG', 'TIFF'):
+        if format == 'JPEG':
+            if image.mode.endswith('A'):
+                # From PIL 4.2, saving an image with a transparency layer raises an
+                # IOError, so explicitly remove it.
+                image = image.convert(image.mode[:-1])
+            if settings.THUMBNAIL_PROGRESSIVE and (
+                    max(image.size) >= settings.THUMBNAIL_PROGRESSIVE):
+                options['progressive'] = True
+        if options.pop('keep_icc_profile', False):
+            try:
                 options['icc_profile'] = image.info.get('icc_profile')
-            image.save(destination, format=format, optimize=1, **options)
-            saved = True
-        except IOError:
-            # Try again, without optimization (PIL can't optimize an image
-            # larger than ImageFile.MAXBLOCK, which is 64k by default). This
-            # shouldn't be triggered very often these days, as recent versions
-            # of pillow avoid the MAXBLOCK limitation.
-            pass
+                image.save(destination, format=format, optimize=1, **options)
+                saved = True
+            except IOError:
+                # Try again, without optimization (PIL can't optimize an image
+                # larger than ImageFile.MAXBLOCK, which is 64k by default). This
+                # shouldn't be triggered very often these days, as recent versions
+                # of pillow avoid the MAXBLOCK limitation.
+                pass
     if not saved:
         image.save(destination, format=format, **options)
     if hasattr(destination, 'seek'):
