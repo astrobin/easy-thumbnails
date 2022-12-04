@@ -46,8 +46,11 @@ def save_image(image, destination=None, filename=None, **options):
     # Ensure plugins are fully loaded so that Image.EXTENSION is populated.
     Image.init()
     format = Image.EXTENSION.get(os.path.splitext(filename)[1].lower(), 'JPEG')
+    default_quality = 85
     if format in ('JPEG', 'WEBP'):
-        options.setdefault('quality', 85)
+        options.setdefault('quality', default_quality)
+    if image.format != 'JPEG' and options['quality'] == 'keep':
+        options['quality'] = options.get('quality_fallback', default_quality)
     saved = False
     if format in ('JPEG', 'PNG', 'TIFF'):
         if format == 'JPEG':
