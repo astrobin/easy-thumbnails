@@ -47,12 +47,18 @@ def save_image(image, destination=None, filename=None, **options):
     Image.init()
     format = Image.EXTENSION.get(os.path.splitext(filename)[1].lower(), 'JPEG')
     default_quality = 85
-    if format in ('JPEG', 'WEBP'):
+    if format in ('JPEG', 'WEBP', 'TIFF'):
+        options['optimize'] = 1
         options.setdefault('quality', default_quality)
-    if image.format != 'JPEG' and options['quality'] == 'keep':
-        options['quality'] = options.get('quality_fallback', default_quality)
+        if options['quality'] == 'keep':
+            options['quality'] = options.get('quality_fallback', default_quality)
+    elif format == 'PNG':
+        del options['quality']
+        # Pillow is quite slow at compressing PNGs while saving, so here we're compromising bandwidth for speed.
+        options['compress_level'] = 3
+
     saved = False
-    if format in ('JPEG', 'PNG', 'TIFF'):
+    if format in ('JPEG', 'WEBP', 'PNG', 'TIFF'):
         if format == 'JPEG':
             if image.mode.endswith('A'):
                 # From PIL 4.2, saving an image with a transparency layer raises an
@@ -64,14 +70,15 @@ def save_image(image, destination=None, filename=None, **options):
         if options.pop('keep_icc_profile', False):
             try:
                 options['icc_profile'] = image.info.get('icc_profile')
-                image.save(destination, format=format, optimize=1, **options)
+                image.save(destination, format=format, **options)
                 saved = True
             except IOError:
                 # Try again, without optimization (PIL can't optimize an image
                 # larger than ImageFile.MAXBLOCK, which is 64k by default). This
                 # shouldn't be triggered very often these days, as recent versions
                 # of pillow avoid the MAXBLOCK limitation.
-                pass
+                if 'optimize' in options:
+                    del options['optimize']
     if not saved:
         image.save(destination, format=format, **options)
     if hasattr(destination, 'seek'):
