@@ -46,12 +46,11 @@ def save_image(image, destination=None, filename=None, **options):
     # Ensure plugins are fully loaded so that Image.EXTENSION is populated.
     Image.init()
     format = Image.EXTENSION.get(os.path.splitext(filename)[1].lower(), 'JPEG')
+    image.format = format
     default_quality = 85
     if format in ('JPEG', 'WEBP', 'TIFF'):
         options['optimize'] = 1
         options.setdefault('quality', default_quality)
-        if options['quality'] == 'keep':
-            options['quality'] = options.get('quality_fallback', default_quality)
     elif format == 'PNG':
         del options['quality']
         # Pillow is quite slow at compressing PNGs while saving, so here we're compromising bandwidth for speed.
