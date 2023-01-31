@@ -2,7 +2,7 @@ import os
 
 from io import BytesIO
 
-from PIL import Image
+from PIL import Image, ImageFile
 
 from easy_thumbnails import utils
 from easy_thumbnails.conf import settings
@@ -78,10 +78,27 @@ def save_image(image, destination=None, filename=None, **options):
                 # of pillow avoid the MAXBLOCK limitation.
                 if 'optimize' in options:
                     del options['optimize']
-    if not saved:
-        image.save(destination, format=format, **options)
+
+    if not saved and format == 'JPEG' and options['quality'] == 'keep':
+        # If we haven't managed to save a JPEG above, there might be an issue with quality.
+        options['quality'] = 95
+
+    while not saved:
+        try:
+            image.save(destination, format=format, **options)
+        except IOError as e:
+            if format == 'JPEG':
+                options['quality'] = options['quality'] - 1
+                if options['quality'] < 20:
+                    raise e
+            else:
+                raise e
+        else:
+            saved = True
+
     if hasattr(destination, 'seek'):
         destination.seek(0)
+
     return destination
 
 
