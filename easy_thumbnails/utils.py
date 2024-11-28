@@ -1,11 +1,14 @@
 import hashlib
 import inspect
+import logging
 import math
 
 from django.utils.functional import LazyObject
 from django.utils import timezone
 from PIL import Image
 from easy_thumbnails.conf import settings
+
+logger = logging.getLogger('easy_thumbnails.utils')
 
 
 def image_entropy(im):
@@ -146,3 +149,85 @@ def get_modified_time(storage, name):
             default_timezone = timezone.get_default_timezone()
             return timezone.make_aware(modified_time, default_timezone)
     return modified_time
+
+
+def get_srgb_profile(srgb_profile_path):
+    """
+    Load sRGB ICC profile from the specified path.
+
+    Parameters:
+        srgb_profile_path (str): Path to the sRGB ICC profile file
+
+    Returns:
+        bytes or None: The ICC profile data if successful, None otherwise
+    """
+    if not srgb_profile_path:
+        return None
+
+    try:
+        with open(srgb_profile_path, 'rb') as icc_file:
+            return icc_file.read()
+    except Exception:
+        return None
+
+
+def get_color_profile_data(image, srgb_profile_path=None):
+    """
+    Extract and process color profile data from an image.
+
+    Parameters:
+        image (PIL.Image.Image): The PIL image to process
+        srgb_profile_path (str, optional): Path to the sRGB ICC profile file
+
+    Returns:
+        dict: Color profile options to be used when saving the image
+    """
+    save_options = {}
+
+    # Get existing ICC profile
+    icc_profile = image.info.get('icc_profile', None)
+
+    logger.debug(f"ICC profile: {icc_profile}")
+
+    # Extract EXIF data
+    exif = image.getexif()
+    exif_bytes = image.info.get('exif', b'')
+
+    # Check color space from EXIF
+    color_space_tag = 40961  # 0xA001
+    color_space = exif.get(color_space_tag, 0)  # 1 = sRGB, 65535 = Uncalibrated
+
+    # Handle ICC profile
+    if not icc_profile and color_space == 1 and srgb_profile_path:
+        # Image references sRGB but has no embedded profile
+        srgb_icc_profile = get_srgb_profile(srgb_profile_path)
+        if srgb_icc_profile:
+            logger.debug(f"Using sRGB ICC profile")
+            save_options['icc_profile'] = srgb_icc_profile
+    elif icc_profile:
+        # Preserve existing ICC profile
+        save_options['icc_profile'] = icc_profile
+
+    # Include EXIF data if present
+    if exif_bytes:
+        logger.debug(f"Using EXIF data")
+        save_options['exif'] = exif_bytes
+
+    return save_options
+
+
+def prepare_image_color_mode(image, format):
+    """
+    Prepare image color mode for the target format.
+
+    Parameters:
+        image (PIL.Image.Image): The PIL image to process
+        format (str): The target format (e.g., 'JPEG', 'PNG')
+
+    Returns:
+        PIL.Image.Image: The processed image
+    """
+    if format == 'JPEG':
+        if image.mode in ("RGBA", "LA") or (image.mode == "P" and 'transparency' in image.info):
+            return image.convert("RGB")
+    return image

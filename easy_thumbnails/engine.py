@@ -7,6 +7,7 @@ from PIL import Image
 from easy_thumbnails import utils
 from easy_thumbnails.conf import settings
 from easy_thumbnails.options import ThumbnailOptions
+from easy_thumbnails.utils import get_color_profile_data, prepare_image_color_mode
 
 
 class NoSourceGenerator(Exception):
@@ -38,48 +39,63 @@ def process_image(source, processor_options, processors=None):
 
 def save_image(image, destination=None, filename=None, **options):
     """
-    Save a PIL image.
+    Save a PIL image with proper ICC profile handling and EXIF metadata preservation.
+
+    Parameters:
+        image (PIL.Image.Image): The PIL image to save
+        destination (str or file-like object, optional): The destination to save the image
+        filename (str, optional): The filename (used to determine format)
+        **options: Additional keyword arguments for saving the image
+
+    Returns:
+        destination: The saved image file-like object or file path
     """
     if destination is None:
         destination = BytesIO()
+
+    # Determine format
     filename = filename or ''
     # Ensure plugins are fully loaded so that Image.EXTENSION is populated.
     Image.init()
-    format = Image.EXTENSION.get(os.path.splitext(filename)[1].lower(), 'JPEG')
+    ext = os.path.splitext(filename)[1].lower()
+    format = Image.EXTENSION.get(ext, 'JPEG')
     image.format = format
-    default_quality = 85
-    if format in ('JPEG', 'WEBP', 'TIFF'):
-        options['optimize'] = 1
-        options.setdefault('quality', default_quality)
-    elif format == 'PNG':
-        del options['quality']
-        # Pillow is quite slow at compressing PNGs while saving, so here we're compromising bandwidth for speed.
-        options['compress_level'] = 3
 
-    saved = False
-    if format in ('JPEG', 'WEBP', 'PNG', 'TIFF'):
-        if format == 'JPEG':
-            if image.mode.endswith('A'):
-                # From PIL 4.2, saving an image with a transparency layer raises an
-                # IOError, so explicitly remove it.
-                image = image.convert(image.mode[:-1])
-            if settings.THUMBNAIL_PROGRESSIVE and (
-                    max(image.size) >= settings.THUMBNAIL_PROGRESSIVE):
-                options['progressive'] = True
-        if options.pop('keep_icc_profile', False):
-            try:
-                options['icc_profile'] = image.info.get('icc_profile')
-                image.save(destination, format=format, **options)
-                saved = True
-            except IOError:
-                # Try again, without optimization (PIL can't optimize an image
-                # larger than ImageFile.MAXBLOCK, which is 64k by default). This
-                # shouldn't be triggered very often these days, as recent versions
-                # of pillow avoid the MAXBLOCK limitation.
-                if 'optimize' in options:
-                    del options['optimize']
-    if not saved:
-        image.save(destination, format=format, **options)
+    # Initialize save options
+    save_options = options.copy()
+    default_quality = 85
+
+    # Set format-specific options
+    if format in ('JPEG', 'WEBP', 'TIFF'):
+        save_options['optimize'] = True
+        save_options.setdefault('quality', default_quality)
+    elif format == 'PNG':
+        save_options.pop('quality', None)
+        save_options['compress_level'] = 3
+
+    # Handle progressive JPEGs
+    if format == 'JPEG' and settings.THUMBNAIL_PROGRESSIVE and (max(image.size) >= settings.THUMBNAIL_PROGRESSIVE):
+        save_options['progressive'] = True
+
+    # Get color profile settings
+    srgb_profile_path = getattr(settings, 'THUMBNAIL_SRGB_ICC_PROFILE_PATH', None)
+    color_options = get_color_profile_data(image, srgb_profile_path)
+    save_options.update(color_options)
+
+    # Prepare image color mode
+    image = prepare_image_color_mode(image, format)
+
+    # Save the image
+    try:
+        image.save(destination, format=format, **save_options)
+    except IOError as e:
+        if 'optimize' in save_options:
+            save_options.pop('optimize')
+            image.save(destination, format=format, **save_options)
+        else:
+            raise e
+
+    # Reset the destination's file pointer if it's file-like
     if hasattr(destination, 'seek'):
         destination.seek(0)
     return destination
